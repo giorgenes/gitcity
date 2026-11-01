@@ -1,0 +1,28 @@
+{
+  "name": "gitcity",
+  "version": "0.1.0",
+  "description": "Render a git repository as an interactive 3D city in one HTML file",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "gitcity": "bin/gitcity.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "template"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/giorgenes/gitcity.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "smol-toml": "^1.9.1"
+  }
+}
