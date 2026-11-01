@@ -4,7 +4,7 @@ Render a git repository as an interactive 3D city in one HTML file. The page has
 no dependencies and works opened straight from disk.
 
 ```sh
-npx gitcity ~/work/my-project --ref origin/main -o my-project.html
+npx github:giorgenes/gitcity ~/work/my-project --ref origin/main -o my-project.html
 ```
 
 | Argument | Meaning | Default |
