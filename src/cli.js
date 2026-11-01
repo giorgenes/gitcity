@@ -5,7 +5,7 @@ import { assignCities, dropEmptyCommits, embed } from "./cities.js";
 import { readCityfile } from "./cityfile.js";
 import { fail } from "./errors.js";
 import { git } from "./git.js";
-import { collect, lineCounts } from "./history.js";
+import { collect, fileSizes } from "./history.js";
 
 const TEMPLATE = new URL("../template/city.html", import.meta.url);
 const PLACEHOLDER = "/*__CITY_DATA__*/null";
@@ -63,10 +63,10 @@ export async function main(argv) {
 
   const { commits: every, files: everyFile } = await collect(args.repo, ref);
   const placed = assignCities(everyFile, cities, config.exclude ?? []);
-  const sizes = lineCounts(args.repo, ref);
+  const sizes = fileSizes(args.repo, ref);
   const { commits, files } = dropEmptyCommits(every, placed, sizes);
   if (!commits.length) {
-    fail(`no commit past the marks touches a drawn file at ${ref}`);
+    fail(`no commit touches a drawn file at ${ref}`);
   }
   const filled = new Set(files.map((entry) => entry[2]));
   cities.forEach((city, index) => {

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`gitcity` is an `npx`-runnable CLI that turns a git repository into one self-contained interactive 3D HTML page. See `README.md` for user-facing behaviour: block shapes, the `Cityfile`, and hotspot marks.
+`gitcity` is an `npx`-runnable CLI that turns a git repository into one self-contained interactive 3D HTML page. See `README.md` for user-facing behaviour: block shapes and the `Cityfile`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ There is no linter or bundler. The code is plain ESM JavaScript, and `smol-toml`
 
 The pipeline runs from `main` in `src/cli.js`: read the `Cityfile`, collect history, assign files to cities, drop unused commits, then inject JSON into the page.
 
-- `src/history.js` streams `git log --raw -p -U0` and folds it into per-file history. It walks newest to oldest, using an alias map to carry a live file's identity back through renames, and applies hotspot marks as cuts.
+- `src/history.js` streams `git log --raw -p -U0` and folds it into per-file history. It walks newest to oldest, using an alias map to carry a live file's identity back through renames.
 - `src/cities.js` assigns files to cities and renumbers commits. It also holds the glob matcher.
 - `src/cityfile.js` validates config and rejects unknown keys.
 - `template/city.html` is the whole viewer: markup, styles and script, with no external assets. `src/cli.js` replaces its `/*__CITY_DATA__*/null` placeholder with the data.
@@ -28,7 +28,7 @@ The JSON embedded in the page is the contract between the CLI and the template, 
 
 ```
 {name, ref, generated, commits: [[short, stamp, subject]], cities: [{name, path}],
- files: [[path, [commit index], city index, [[added, deleted, modified]], lines]]}
+ files: [[path, [commit index], city index, [[added, deleted, modified]], bytes, dense (0|1)]]}
 ```
 
 `commits` runs oldest first, and each file's two lists are parallel.

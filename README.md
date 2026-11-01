@@ -21,9 +21,13 @@ Requires Node.js 20 or newer and `git`.
 Each tracked file is a building, one block per commit that touched it. Each
 folder is a block, with its subfolders as sub-blocks inside it.
 
-A building's height is proportional to the file's lines at the drawn commit,
-however many commits it has. A binary or empty file has zero lines and is drawn
-at a minimum height.
+A building's height is proportional to the file's size in bytes at the drawn
+commit, however many commits it has. An empty file is drawn at a minimum height.
+
+The files larger than the 90th percentile of all drawn files are dense: each
+stands at a tenth of the height its size would give it, and at least tall enough
+to read its label, which is its extension repeated around each block (`file`
+when it has none). With fewer than ten files, none is dense.
 
 A block's size follows the commit's total lines, in fixed proportions, before
 the stack is scaled vertically to the building's height. Git records only
@@ -70,21 +74,6 @@ exclude = ["*.lock"]         # dropped from this city only
 - A file under several city paths belongs to the longest one.
 - An exclude is a folder or file path, or a glob (`*`, `?`, `[seq]`, `[!seq]`)
   in which `*` also crosses `/`. It is always relative to the repository root.
-
-## Marking a file as refactored
-
-A TOML file in `bin/hotspot-marks/` at the drawn commit marks a file as
-refactored, so its older churn stops counting:
-
-```toml
-path = "src/billing.go"
-date = 2024-06-01            # optional
-```
-
-A marked file has blocks only for commits newer than the commit that added the
-mark, or, when the mark has a `date`, for commits after that day. A marked file
-with no such commit has no building. A repository with no such folder has no
-marks.
 
 ## License
 

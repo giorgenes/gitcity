@@ -1,6 +1,7 @@
 const LITERAL = /[\^$\\.*+?()[\]{}|/]/g;
 const IN_SET = /[\\\]\[^-]/g;
 const compiled = new Map();
+const DENSE_PERCENTILE = 0.9;
 
 /** Translate a glob's `[...]`, whose contents exclude the brackets. */
 function setToRegex(body) {
@@ -90,13 +91,28 @@ export function assignCities(files, cities, sharedExclude) {
 }
 
 /**
+ * The size a file must exceed to be dense: the 90th percentile, by nearest
+ * rank. Exceed, so that files of one size are never dense because of a tie.
+ */
+export function denseCutoff(sizes) {
+  const sorted = [...sizes].sort((a, b) => a - b);
+  return sorted[Math.ceil(sorted.length * DENSE_PERCENTILE) - 1] ?? 0;
+}
+
+/**
  * Keep only commits touching a drawn file, and renumber references. Each file
- * becomes [path, commit indexes, city index, line counts per commit, lines].
+ * becomes [path, commit indexes, city index, line counts per commit, bytes,
+ * 1 if dense or else 0]. A file with no commits has no building, so it does
+ * not count towards the percentile.
  */
 export function dropEmptyCommits(commits, placed, sizes) {
   const seen = new Set();
   for (const [, hits] of placed) for (const [hit] of hits) seen.add(hit);
   const used = [...seen].sort((a, b) => a - b);
+  const bytesOf = (name) => sizes.get(name) ?? 0;
+  const cutoff = denseCutoff(placed
+    .filter(([, hits]) => hits.length)
+    .map(([name]) => bytesOf(name)));
   const renumber = new Map(used.map((old, index) => [old, index]));
   return {
     commits: used.map((old) => commits[old]),
@@ -105,7 +121,8 @@ export function dropEmptyCommits(commits, placed, sizes) {
       hits.map(([hit]) => renumber.get(hit)),
       city,
       hits.map(([, counts]) => counts),
-      sizes.get(name) ?? 0,
+      bytesOf(name),
+      bytesOf(name) > cutoff ? 1 : 0,
     ]),
   };
 }

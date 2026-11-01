@@ -128,12 +128,14 @@
     <div><svg class="shape" viewBox="0 0 18 18"><rect x="5" y="5" width="8"
       height="8"/></svg>No lines changed</div>
   </div>
-  <div class="help">A building's height is proportional to the file's lines
+  <div class="help">A building's height is proportional to the file's size
     at the drawn commit, however many commits it has. Moving through history
-    stacks the blocks up to that height; it does not replay past line counts.
+    stacks the blocks up to that height; it does not replay past sizes.
     1 block = 1 commit: its width and its share of the building follow the
     commit's total lines. A hunk's min(deleted, added) lines count as modified,
-    and a modified line is both a delete and an addition.</div>
+    and a modified line is both a delete and an addition.
+    The largest tenth of files are dense: a tenth of that height, with their
+    extension written around them.</div>
   <h2>Most commits</h2>
   <table id="busiest"></table>
   <div class="help">Drag to orbit, right-drag or
@@ -164,8 +166,12 @@ const BLOCK_RATIO = 0.75; // every block's height, as a share of its side
 const MIN_SLOT = 1.2;  // narrowest footprint a building is given
 const GAP = 1;         // space between neighbouring buildings
 const COMMIT_GAP = 0.12;  // space above each block
-const LINE_HEIGHT = 0.05;  // building height per line of the file
-const MIN_HEIGHT = 0.1;    // height of a file with few or no lines
+const BYTE_HEIGHT = 0.00125;  // building height per byte: 40 bytes a line, 0.05
+const MIN_HEIGHT = 0.1;    // height of a very small or empty file
+const DENSE_SCALE = 0.1;   // a dense file's height per byte, as a share
+const DENSE_HEIGHT = 1.2;  // least height of a dense file: two rows of its tag
+const TAG_W = 1.2, TAG_H = 0.6;  // one repeat of the tag, in world units
+const MAX_TAGS = 256;      // distinct tags kept; dense files past this go blank
 const BOX = 0, PYRAMID = 1, PRISM = 2, CYLINDER = 3, ICOSAHEDRON = 4;
 const PLATE = 0.6;     // thickness of one block level
 const STREET = 48;     // space between neighbouring cities
@@ -191,7 +197,7 @@ function shapeOf(added, deleted, modified) {
 
 // One commit on one file is one block, starting at height y. Its size follows
 // the commit's total lines, in fixed proportions, so it grows by the cube root.
-// These are unscaled heights: the stack is then fitted to the file's lines.
+// These are unscaled heights: the stack is then fitted to the file's size.
 function blockOf(hit, lines, y) {
   const [added, deleted, modified] = lines;
   const total = added + deleted + modified;
@@ -204,7 +210,8 @@ function blockOf(hit, lines, y) {
   return { top, slabs: [slab] };
 }
 
-const FILES = DATA.files.map(([path, hits, cityIndex, lines, size]) => {
+const TAGS = new Map();
+const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
   const city = CITIES[cityIndex];
   const parts = (city.path ? path.slice(city.path.length + 1) : path)
     .split("/");
@@ -230,9 +237,11 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size]) => {
     return block.slabs;
   });
   // The whole stack, gaps included, is scaled so that its top stands at the
-  // height the file's lines give it. No top gap: the last block ends there.
+  // height the file's size gives it. No top gap: the last block ends there.
   const stacked = tops[hits.length] - COMMIT_GAP;
-  const fit = Math.max(size * LINE_HEIGHT, MIN_HEIGHT) / stacked;
+  const fit = (dense
+    ? Math.max(size * BYTE_HEIGHT * DENSE_SCALE, DENSE_HEIGHT)
+    : Math.max(size * BYTE_HEIGHT, MIN_HEIGHT)) / stacked;
   if (hits.length) {
     tops.forEach((top, i) => { tops[i] = top * fit; });
     for (const slab of slabs) {
@@ -240,11 +249,22 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size]) => {
       slab.y1 *= fit;
     }
   }
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "(none)";
+  let tag = -1;
+  if (dense) {
+    // Wide enough to read the tag, and in colour: a binary commit has no lines.
+    for (const slab of slabs) {
+      slab.side = Math.max(slab.side, MIN_SLOT);
+      slab.plain = 0;
+    }
+    const word = dot > 0 ? ext : "file";
+    if (!TAGS.has(word) && TAGS.size < MAX_TAGS) TAGS.set(word, TAGS.size);
+    tag = TAGS.get(word) ?? -1;
+  }
   const side = Math.max(0, ...slabs.map((slab) => slab.side));
   const file = { kind: "file", path, name, dir, hits, lines, size, slabs, tops,
-    side, area,
-    cityName: city.name,
-    ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : "(none)" };
+    side, area, dense: !!dense, tag,
+    cityName: city.name, ext };
   dir.files.push(file);
   return file;
 });
@@ -407,11 +427,12 @@ layout(location=1) in vec3 aNormal;
 layout(location=2) in vec3 iPos;
 layout(location=3) in vec3 iSize;
 layout(location=4) in vec3 iSlab;  // plain flag, commit, item
+layout(location=5) in float iTag;  // layer of the tag texture, or -1
 uniform mat4 uView, uProj;
 uniform highp sampler2D uItems;
 uniform float uTime;
-out vec3 vNormal, vColor, vWorld;
-flat out float vPlain, vEmphasis;
+out vec3 vNormal, vColor, vWorld, vLocal;
+flat out float vPlain, vEmphasis, vTag, vSide;
 void main() {
   int item = int(iSlab.z);
   int row = textureSize(uItems, 0).x;
@@ -423,23 +444,41 @@ void main() {
   vEmphasis = look.a * 2.0;
   vPlain = iSlab.x;
   vWorld = world;
+  vLocal = aPos * iSize;
+  vTag = iTag;
+  vSide = iSize.x;
   // A slab from a later commit than the one shown lands outside the clip box.
   gl_Position = iSlab.y > uTime ? vec4(2.0, 2.0, 2.0, 1.0)
                                 : uProj * uView * vec4(world, 1.0);
 }`;
 const FS = `#version 300 es
 precision highp float;
-in vec3 vNormal, vColor, vWorld;
-flat in float vPlain, vEmphasis;
+in vec3 vNormal, vColor, vWorld, vLocal;
+flat in float vPlain, vEmphasis, vTag, vSide;
 uniform vec3 uBg, uEye;
 uniform float uFogFar;
+uniform highp sampler2DArray uTags;
 out vec4 out_;
+
+// How much of the tag's ink covers this point of a wall. Each wall is read
+// from outside, left to right, with a whole number of repeats across it.
+float tagInk(vec3 n) {
+  if (vTag < 0.0 || length(n.xz) < 0.2) return 0.0;
+  float across = abs(n.x) > abs(n.z) ? -sign(n.x) * vLocal.z
+                                     : sign(n.z) * vLocal.x;
+  float repeats = max(1.0, round(vSide / ${TAG_W.toFixed(2)}));
+  vec2 uv = vec2((across / vSide + 0.5) * repeats,
+                 -vWorld.y / ${TAG_H.toFixed(2)});
+  return texture(uTags, vec3(uv, vTag)).a;
+}
 
 void main() {
   vec3 n = normalize(vNormal);
   float sun = max(dot(n, normalize(vec3(0.45, 0.8, 0.35))), 0.0);
   float fill = max(dot(n, normalize(vec3(-0.6, 0.2, -0.5))), 0.0);
   vec3 c = vColor * (0.42 + 0.58 * sun + 0.18 * fill);
+  vec3 ink = dot(vColor, vec3(0.3, 0.59, 0.11)) > 0.5 ? vec3(0.05) : vec3(0.97);
+  c = mix(c, ink, tagInk(n) * 0.9);
   if (vPlain > 0.5) c = mix(c, vec3(0.5), 0.6);
   if (vEmphasis < 0.5) c = mix(vec3(0.16), c, 0.12);
   if (vEmphasis > 1.5) c = mix(c, vec3(1.0), 0.45);
@@ -464,7 +503,7 @@ gl.linkProgram(program);
 gl.useProgram(program);
 const U = {};
 for (const n of ["uView", "uProj", "uBg", "uEye", "uFogFar", "uTime",
-                 "uItems"]) {
+                 "uItems", "uTags"]) {
   U[n] = gl.getUniformLocation(program, n);
 }
 
@@ -577,19 +616,20 @@ gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
 
 // Slabs never move: only the time uniform and the item look-up change, so a
 // history step or a hover uploads one small texture, however many slabs exist.
-// Nine floats per slab: position, size, plain flag, first commit shown, item.
+// Ten floats per slab: position, size, plain flag, first commit shown, item,
+// tag layer.
 // Slabs sit grouped by shape, and each group is one instanced draw.
-const STRIDE = 9;
+const STRIDE = 10;
 const rowsByShape = MESHES.map(() => []);
 FOLDERS.forEach((dir, item) => {
   rowsByShape[BOX].push([dir.x, dir.y, dir.z, dir.w, PLATE, dir.d, 0,
-                         dir.first, item]);
+                         dir.first, item, -1]);
 });
 FILES.forEach((file, i) => {
   for (const slab of file.slabs) {
     rowsByShape[slab.shape].push([file.x, file.y + slab.y0, file.z,
       slab.side, slab.y1 - slab.y0, slab.side,
-      slab.plain, file.hits[slab.hit], FOLDERS.length + i]);
+      slab.plain, file.hits[slab.hit], FOLDERS.length + i, file.tag]);
   }
 });
 const SLAB_COUNT = rowsByShape.reduce((sum, rows) => sum + rows.length, 0);
@@ -606,7 +646,7 @@ const BATCHES = [];
 }
 gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, slabData, gl.STATIC_DRAW);
-[2, 3, 4].forEach((loc) => {
+[2, 3, 4, 5].forEach((loc) => {
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribDivisor(loc, 1);
 });
@@ -620,6 +660,40 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ITEMS_W, ITEMS_H, 0, gl.RGBA,
               gl.UNSIGNED_BYTE, looks);
+
+// One layer per tag, drawn once. The item texture stays bound to unit 0.
+{
+  const TAG_PX_W = 256, TAG_PX_H = 128;
+  const paper = document.createElement("canvas");
+  paper.width = TAG_PX_W;
+  paper.height = TAG_PX_H;
+  const pen = paper.getContext("2d", { willReadFrequently: true });
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, gl.createTexture());
+  const layers = Math.max(1, TAGS.size);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY,
+    1 + Math.floor(Math.log2(TAG_PX_W)), gl.RGBA8, TAG_PX_W, TAG_PX_H, layers);
+  for (const [word, layer] of TAGS) {
+    pen.clearRect(0, 0, TAG_PX_W, TAG_PX_H);
+    pen.font = "700 92px ui-monospace, Menlo, Consolas, monospace";
+    const fit = Math.min(1, TAG_PX_W * 0.88 / pen.measureText(word).width);
+    pen.font = `700 ${Math.floor(92 * fit)}px ui-monospace, Menlo, Consolas, monospace`;
+    pen.textAlign = "center";
+    pen.textBaseline = "middle";
+    pen.fillStyle = "#fff";
+    pen.fillText(word, TAG_PX_W / 2, TAG_PX_H / 2);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, TAG_PX_W, TAG_PX_H, 1,
+                     gl.RGBA, gl.UNSIGNED_BYTE, paper);
+  }
+  gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER,
+                   gl.LINEAR_MIPMAP_LINEAR);
+  const sharp = gl.getExtension("EXT_texture_filter_anisotropic");
+  if (sharp) gl.texParameterf(gl.TEXTURE_2D_ARRAY,
+                              sharp.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+  gl.uniform1i(U.uTags, 1);
+  gl.activeTexture(gl.TEXTURE0);
+}
 gl.enable(gl.DEPTH_TEST);
 gl.enable(gl.CULL_FACE);
 const BG = rgb("#1a1a19");
@@ -793,6 +867,7 @@ function frame(now) {
       gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, STRIDE * 4,
                              batch.offset + at * 12);
     });
+    gl.vertexAttribPointer(5, 1, gl.FLOAT, false, STRIDE * 4, batch.offset + 36);
     gl.drawArraysInstanced(gl.TRIANGLES, batch.first, batch.vertices,
                            batch.count);
   }
@@ -865,6 +940,12 @@ const commitCount = (n) => n + (n === 1 ? " commit" : " commits");
 function lineText([added, deleted, modified]) {
   return added + deleted + modified
     ? `+${added} \u2212${deleted} ~${modified} lines` : "no lines changed";
+}
+
+function sizeText(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 function lineTotals(files) {
@@ -941,7 +1022,8 @@ function renderDetail() {
     const n = count(item, state.t);
     const seen = item.hits.slice(0, n);
     box.append(stats([
-      [`Lines at ${DATA.ref}`, item.size.toLocaleString()],
+      [`Size at ${DATA.ref}`, sizeText(item.size)],
+      ...(item.dense ? [["Height", "dense: a tenth of its size"]] : []),
       ["Commits", String(n)],
       ["First", n ? day(seen[0]) : "not yet"],
       ["Latest", n ? day(seen[n - 1]) : "not yet"],

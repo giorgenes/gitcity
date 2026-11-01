@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { assignCities, embed, excluded, globMatch } from "../src/cities.js";
+import { assignCities, denseCutoff, embed, excluded, globMatch } from "../src/cities.js";
 import { normalPath } from "../src/cityfile.js";
 import { CityError } from "../src/errors.js";
 import { hunkLines, parseLog } from "../src/history.js";
@@ -61,7 +61,7 @@ test("hunkLines counts the overlap as modified", () => {
 
 test("parseLog reads headers, raw lines and hunks, with omitted counts as 1", async () => {
   const lines = [
-    "\x01abc\x021700000000\x022023-11-14\x02sub\x02ject\n",
+    "\x01abc\x021700000000\x02sub\x02ject\n",
     ":100644 100644 aaa bbb M\ta.txt\n",
     ":100644 100644 aaa bbb R090\told.txt\tnew.txt\n",
     "diff --git a/a.txt b/a.txt\n",
@@ -117,7 +117,7 @@ test("embed cannot close the script tag", () => {
   assert.equal(embed(["</script><!--"]), '["<\\/script><\\!--"]');
 });
 
-test("buildings carry commits, line kinds and current size, across renames", () => {
+test("buildings carry commits, line kinds and current bytes, across renames", () => {
   const repo = makeRepo();
   put(repo, "src/a.txt", "1\n2\n3\n");
   put(repo, "image.bin", Buffer.from([0, 1, 2, 0]));
@@ -132,9 +132,27 @@ test("buildings carry commits, line kinds and current size, across renames", () 
   assert.deepEqual(data.commits.map((entry) => entry[2]), ["add", "edit", "move"]);
   assert.deepEqual(data.files.map((entry) => entry[0]), ["image.bin", "src/b.txt"]);
   assert.deepEqual(fileNamed(data, "src/b.txt").slice(1), [
-    [0, 1, 2], 0, [[3, 0, 0], [1, 0, 1], [0, 0, 0]], 4,
+    [0, 1, 2], 0, [[3, 0, 0], [1, 0, 1], [0, 0, 0]], 14, 0,
   ]);
-  assert.equal(fileNamed(data, "image.bin")[4], 0);
+  assert.deepEqual(fileNamed(data, "image.bin").slice(4), [4, 0]);
+});
+
+test("a dense file is larger than the 90th percentile of drawn files", () => {
+  assert.equal(denseCutoff([]), 0);
+  assert.equal(denseCutoff([5, 5, 5]), 5);
+  assert.equal(denseCutoff([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 9);
+
+  const repo = makeRepo();
+  for (let at = 1; at <= 9; at += 1) put(repo, `f${at}.txt`, "x".repeat(at));
+  put(repo, "huge.png", Buffer.alloc(5000));
+  put(repo, "empty", "");
+  symlinkSync("f1.txt", join(repo, "link"));
+  commit(repo, "add");
+
+  const { data } = city(repo);
+  assert.deepEqual(data.files.filter((entry) => entry[5]).map((entry) => entry[0]), ["huge.png"]);
+  assert.equal(fileNamed(data, "huge.png")[4], 5000);
+  assert.equal(fileNamed(data, "empty")[4], 0);
 });
 
 test("a subject holding replacement patterns reaches the page unchanged", () => {
@@ -168,27 +186,7 @@ test("a Cityfile sets cities and excludes, and a flag beats it", () => {
 
   const older = city(repo, "--ref", "HEAD~1");
   assert.equal(older.data.ref, "HEAD~1");
-  assert.equal(fileNamed(older.data, "api/a.go")[4], 1);
-});
-
-test("a marked file keeps only commits after its mark or its date", () => {
-  const repo = makeRepo();
-  put(repo, "a.txt", "1\n");
-  put(repo, "b.txt", "1\n");
-  commit(repo, "one", "2024-01-01T12:00:00Z");
-  put(repo, "a.txt", "2\n");
-  put(repo, "b.txt", "2\n");
-  commit(repo, "two", "2024-02-01T12:00:00Z");
-  put(repo, "bin/hotspot-marks/a.toml", 'path = "a.txt"\n');
-  put(repo, "bin/hotspot-marks/b.toml", 'path = "b.txt"\ndate = 2024-01-15\n');
-  commit(repo, "mark", "2024-03-01T12:00:00Z");
-  put(repo, "a.txt", "3\n");
-  commit(repo, "three", "2024-04-01T12:00:00Z");
-
-  const { data } = city(repo);
-  const subjects = (name) => fileNamed(data, name)[1].map((at) => data.commits[at][2]);
-  assert.deepEqual(subjects("a.txt"), ["three"]);
-  assert.deepEqual(subjects("b.txt"), ["two"]);
+  assert.equal(fileNamed(older.data, "api/a.go")[4], 2);
 });
 
 test("mistakes end with a message and exit 1", () => {
