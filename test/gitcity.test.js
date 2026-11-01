@@ -152,6 +152,7 @@ test("a dense file is larger than the 90th percentile of drawn files", () => {
   const { data } = city(repo);
   assert.deepEqual(data.files.filter((entry) => entry[5]).map((entry) => entry[0]), ["huge.png"]);
   assert.equal(fileNamed(data, "huge.png")[4], 5000);
+  assert.equal(data.denseBytes, 9);
   assert.equal(fileNamed(data, "empty")[4], 0);
 });
 

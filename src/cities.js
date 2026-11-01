@@ -103,7 +103,7 @@ export function denseCutoff(sizes) {
  * Keep only commits touching a drawn file, and renumber references. Each file
  * becomes [path, commit indexes, city index, line counts per commit, bytes,
  * 1 if dense or else 0]. A file with no commits has no building, so it does
- * not count towards the percentile.
+ * not count towards the percentile. Also returns the cutoff itself.
  */
 export function dropEmptyCommits(commits, placed, sizes) {
   const seen = new Set();
@@ -115,6 +115,7 @@ export function dropEmptyCommits(commits, placed, sizes) {
     .map(([name]) => bytesOf(name)));
   const renumber = new Map(used.map((old, index) => [old, index]));
   return {
+    denseBytes: cutoff,
     commits: used.map((old) => commits[old]),
     files: placed.map(([name, hits, city]) => [
       name,

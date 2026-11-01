@@ -24,10 +24,11 @@ folder is a block, with its subfolders as sub-blocks inside it.
 A building's height is proportional to the file's size in bytes at the drawn
 commit, however many commits it has. An empty file is drawn at a minimum height.
 
-The files larger than the 90th percentile of all drawn files are dense: each
-stands at a tenth of the height its size would give it, and at least tall enough
-to read its label, which is its extension repeated around each block (`file`
-when it has none). With fewer than ten files, none is dense.
+The files larger than the 90th percentile of all drawn files are dense: the
+bytes above that size add only a tenth as much height, and the file's extension
+is repeated around each block (`file` when it has none). A dense file is at
+least tall enough to read that label. With fewer than ten files, none is dense.
+No building stands taller than 250 units, which is 200 KB at the full scale.
 
 A block's size follows the commit's total lines, in fixed proportions, before
 the stack is scaled vertically to the building's height. Git records only
@@ -43,6 +44,9 @@ added. A block's shape follows which of those kinds the commit has:
 | added, deleted and modified | icosahedron |
 | any other mix | hexagonal prism |
 | no lines | small plain box |
+
+A non-empty file none of whose commits has any lines, such as a binary, is as
+wide as a one-commit text file of the same height, rather than a thin pole.
 
 A file's history follows renames, so a moved file keeps its blocks. Merge
 commits with no diff of their own add no block.

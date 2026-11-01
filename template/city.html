@@ -134,8 +134,9 @@
     1 block = 1 commit: its width and its share of the building follow the
     commit's total lines. A hunk's min(deleted, added) lines count as modified,
     and a modified line is both a delete and an addition.
-    The largest tenth of files are dense: a tenth of that height, with their
-    extension written around them.</div>
+    The largest tenth of files are dense: the bytes above that size add only a
+    tenth as much height, and their extension is written around them. Height
+    stops at a limit.</div>
   <h2>Most commits</h2>
   <table id="busiest"></table>
   <div class="help">Drag to orbit, right-drag or
@@ -166,9 +167,11 @@ const BLOCK_RATIO = 0.75; // every block's height, as a share of its side
 const MIN_SLOT = 1.2;  // narrowest footprint a building is given
 const GAP = 1;         // space between neighbouring buildings
 const COMMIT_GAP = 0.12;  // space above each block
-const BYTE_HEIGHT = 0.00125;  // building height per byte: 40 bytes a line, 0.05
+const BYTES_PER_LINE = 40;  // a typical line of source
+const BYTE_HEIGHT = 0.05 / BYTES_PER_LINE;  // building height per byte
 const MIN_HEIGHT = 0.1;    // height of a very small or empty file
-const DENSE_SCALE = 0.1;   // a dense file's height per byte, as a share
+const DENSE_SCALE = 0.1;   // height per byte past the dense cutoff, as a share
+const MAX_HEIGHT = 250;    // no building stands taller
 const DENSE_HEIGHT = 1.2;  // least height of a dense file: two rows of its tag
 const TAG_W = 1.2, TAG_H = 0.6;  // one repeat of the tag, in world units
 const MAX_TAGS = 256;      // distinct tags kept; dense files past this go blank
@@ -239,9 +242,12 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
   // The whole stack, gaps included, is scaled so that its top stands at the
   // height the file's size gives it. No top gap: the last block ends there.
   const stacked = tops[hits.length] - COMMIT_GAP;
-  const fit = (dense
-    ? Math.max(size * BYTE_HEIGHT * DENSE_SCALE, DENSE_HEIGHT)
-    : Math.max(size * BYTE_HEIGHT, MIN_HEIGHT)) / stacked;
+  // Continuous at the dense cutoff, so a larger file never stands shorter.
+  const height = Math.min(MAX_HEIGHT, dense
+    ? Math.max((DATA.denseBytes + (size - DATA.denseBytes) * DENSE_SCALE)
+               * BYTE_HEIGHT, DENSE_HEIGHT)
+    : Math.max(size * BYTE_HEIGHT, MIN_HEIGHT));
+  const fit = height / stacked;
   if (hits.length) {
     tops.forEach((top, i) => { tops[i] = top * fit; });
     for (const slab of slabs) {
@@ -260,6 +266,12 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
     const word = dot > 0 ? ext : "file";
     if (!TAGS.has(word) && TAGS.size < MAX_TAGS) TAGS.set(word, TAGS.size);
     tag = TAGS.get(word) ?? -1;
+  }
+  // With no line counts, block sizes say nothing, and a file of any size would
+  // be a pole. Stand it as wide as a one-commit text file of the same height.
+  if (size && lines.every(([a, d, m]) => !(a + d + m))) {
+    const wide = Math.cbrt(height / (BYTE_HEIGHT * BYTES_PER_LINE)) * BLOCK_SIDE;
+    for (const slab of slabs) slab.side = Math.max(slab.side, wide);
   }
   const side = Math.max(0, ...slabs.map((slab) => slab.side));
   const file = { kind: "file", path, name, dir, hits, lines, size, slabs, tops,
@@ -1023,7 +1035,7 @@ function renderDetail() {
     const seen = item.hits.slice(0, n);
     box.append(stats([
       [`Size at ${DATA.ref}`, sizeText(item.size)],
-      ...(item.dense ? [["Height", "dense: a tenth of its size"]] : []),
+      ...(item.dense ? [["Height", "dense: compressed past the cutoff"]] : []),
       ["Commits", String(n)],
       ["First", n ? day(seen[0]) : "not yet"],
       ["Latest", n ? day(seen[n - 1]) : "not yet"],

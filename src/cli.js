@@ -64,7 +64,7 @@ export async function main(argv) {
   const { commits: every, files: everyFile } = await collect(args.repo, ref);
   const placed = assignCities(everyFile, cities, config.exclude ?? []);
   const sizes = fileSizes(args.repo, ref);
-  const { commits, files } = dropEmptyCommits(every, placed, sizes);
+  const { commits, files, denseBytes } = dropEmptyCommits(every, placed, sizes);
   if (!commits.length) {
     fail(`no commit touches a drawn file at ${ref}`);
   }
@@ -77,6 +77,7 @@ export async function main(argv) {
     name,
     ref,
     generated: new Date().toISOString().slice(0, 10),
+    denseBytes,
     commits,
     cities: cities.map((city) => ({ name: city.name, path: city.path })),
     files,
