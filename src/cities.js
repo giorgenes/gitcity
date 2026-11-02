@@ -1,7 +1,9 @@
 const LITERAL = /[\^$\\.*+?()[\]{}|/]/g;
 const IN_SET = /[\\\]\[^-]/g;
 const compiled = new Map();
-const DENSE_PERCENTILE = 0.9;
+/** Building height per byte, in world units: a 40-byte line stands 0.05 tall. */
+export const BYTE_HEIGHT = 0.05 / 40;
+const DIVIDERS = [1, 10, 100, 1000];
 
 /** Translate a glob's `[...]`, whose contents exclude the brackets. */
 function setToRegex(body) {
@@ -91,31 +93,26 @@ export function assignCities(files, cities, sharedExclude) {
 }
 
 /**
- * The size a file must exceed to be dense: the 90th percentile, by nearest
- * rank. Exceed, so that files of one size are never dense because of a tie.
+ * The smallest divider that keeps a file within the height limit. A file too
+ * large for any of them gets the largest, and the page caps it at the limit.
  */
-export function denseCutoff(sizes) {
-  const sorted = [...sizes].sort((a, b) => a - b);
-  return sorted[Math.ceil(sorted.length * DENSE_PERCENTILE) - 1] ?? 0;
+export function dividerFor(bytes, maxHeight) {
+  return DIVIDERS.find((divider) => bytes * BYTE_HEIGHT / divider <= maxHeight)
+    ?? DIVIDERS[DIVIDERS.length - 1];
 }
 
 /**
  * Keep only commits touching a drawn file, and renumber references. Each file
  * becomes [path, commit indexes, city index, line counts per commit, bytes,
- * 1 if dense or else 0]. A file with no commits has no building, so it does
- * not count towards the percentile. Also returns the cutoff itself.
+ * height divider].
  */
-export function dropEmptyCommits(commits, placed, sizes) {
+export function dropEmptyCommits(commits, placed, sizes, maxHeight) {
   const seen = new Set();
   for (const [, hits] of placed) for (const [hit] of hits) seen.add(hit);
   const used = [...seen].sort((a, b) => a - b);
   const bytesOf = (name) => sizes.get(name) ?? 0;
-  const cutoff = denseCutoff(placed
-    .filter(([, hits]) => hits.length)
-    .map(([name]) => bytesOf(name)));
   const renumber = new Map(used.map((old, index) => [old, index]));
   return {
-    denseBytes: cutoff,
     commits: used.map((old) => commits[old]),
     files: placed.map(([name, hits, city]) => [
       name,
@@ -123,7 +120,7 @@ export function dropEmptyCommits(commits, placed, sizes) {
       city,
       hits.map(([, counts]) => counts),
       bytesOf(name),
-      bytesOf(name) > cutoff ? 1 : 0,
+      dividerFor(bytesOf(name), maxHeight),
     ]),
   };
 }

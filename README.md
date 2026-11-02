@@ -13,6 +13,7 @@ npx github:giorgenes/gitcity ~/work/my-project --ref origin/main -o my-project.h
 | `--ref REF` | commit to draw | `HEAD` |
 | `-o`, `--output PATH` | output file | `<name>-city.html` |
 | `--cityfile PATH` | config file | `<repo>/Cityfile` |
+| `--max-height UNITS` | tallest building, at 800 bytes per unit | `100` |
 
 Requires Node.js 20 or newer and `git`.
 
@@ -24,11 +25,19 @@ folder is a block, with its subfolders as sub-blocks inside it.
 A building's height is proportional to the file's size in bytes at the drawn
 commit, however many commits it has. An empty file is drawn at a minimum height.
 
-The files larger than the 90th percentile of all drawn files are dense: the
-bytes above that size add only a tenth as much height, and the file's extension
-is repeated around each block (`file` when it has none). A dense file is at
-least tall enough to read that label. With fewer than ten files, none is dense.
-No building stands taller than 250 units, which is 200 KB at the full scale.
+One unit of height is 800 bytes. A file that would stand taller than the height
+limit (100 units, or 80 KB, unless `--max-height` or `max_height` changes it) is
+divided by the smallest divider that brings it within the limit. Its block
+colour darkens at each level, and a letter is repeated around its walls:
+
+| Divider | Letter | Example at the default limit |
+| --- | --- | --- |
+| 10x | `d` | over 80 KB, up to 800 KB |
+| 100x | `c` | over 800 KB, up to 8 MB |
+| 1000x | `k` | over 8 MB |
+
+A divided file is at least tall enough to read its letter, up to the limit. A
+file too large even at 1000x stands at the limit.
 
 A block's size follows the commit's total lines, in fixed proportions, before
 the stack is scaled vertically to the building's height. Git records only
@@ -61,6 +70,7 @@ file.
 name = "my-project"          # page title (default: repository folder)
 ref = "origin/main"          # commit to draw (default: HEAD)
 output = "my-project.html"   # relative to the working directory
+max_height = 100             # tallest building, at 800 bytes per unit
 exclude = ["docs/vendor"]    # dropped from every city
 
 [[city]]

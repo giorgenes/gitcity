@@ -134,9 +134,9 @@
     1 block = 1 commit: its width and its share of the building follow the
     commit's total lines. A hunk's min(deleted, added) lines count as modified,
     and a modified line is both a delete and an addition.
-    The largest tenth of files are dense: the bytes above that size add only a
-    tenth as much height, and their extension is written around them. Height
-    stops at a limit.</div>
+    A file too tall for the height limit is divided, by the smallest of 10, 100
+    or 1000 that fits. It is drawn darker at each level and marked around its
+    walls: d = 10x, c = 100x, k = 1000x.</div>
   <h2>Most commits</h2>
   <table id="busiest"></table>
   <div class="help">Drag to orbit, right-drag or
@@ -168,13 +168,16 @@ const MIN_SLOT = 1.2;  // narrowest footprint a building is given
 const GAP = 1;         // space between neighbouring buildings
 const COMMIT_GAP = 0.12;  // space above each block
 const BYTES_PER_LINE = 40;  // a typical line of source
-const BYTE_HEIGHT = 0.05 / BYTES_PER_LINE;  // building height per byte
+const BYTE_HEIGHT = DATA.byteHeight;  // building height per byte
 const MIN_HEIGHT = 0.1;    // height of a very small or empty file
-const DENSE_SCALE = 0.1;   // height per byte past the dense cutoff, as a share
-const MAX_HEIGHT = 250;    // no building stands taller
-const DENSE_HEIGHT = 1.2;  // least height of a dense file: two rows of its tag
+const MAX_HEIGHT = DATA.maxHeight;  // no building stands taller
+const TAG_HEIGHT = 1.2;    // least height of a divided file: two rows of its tag
 const TAG_W = 1.2, TAG_H = 0.6;  // one repeat of the tag, in world units
-const MAX_TAGS = 256;      // distinct tags kept; dense files past this go blank
+// For each divider, its tag layer's letter and its colour's brightness.
+const DIVISIONS = new Map([[10, { word: "d", shade: 0.7 }],
+                           [100, { word: "c", shade: 0.48 }],
+                           [1000, { word: "k", shade: 0.3 }]]);
+const TAGS = [...DIVISIONS.values()].map(({ word }) => word);
 const BOX = 0, PYRAMID = 1, PRISM = 2, CYLINDER = 3, ICOSAHEDRON = 4;
 const PLATE = 0.6;     // thickness of one block level
 const STREET = 48;     // space between neighbouring cities
@@ -213,8 +216,7 @@ function blockOf(hit, lines, y) {
   return { top, slabs: [slab] };
 }
 
-const TAGS = new Map();
-const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
+const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, divider]) => {
   const city = CITIES[cityIndex];
   const parts = (city.path ? path.slice(city.path.length + 1) : path)
     .split("/");
@@ -242,11 +244,9 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
   // The whole stack, gaps included, is scaled so that its top stands at the
   // height the file's size gives it. No top gap: the last block ends there.
   const stacked = tops[hits.length] - COMMIT_GAP;
-  // Continuous at the dense cutoff, so a larger file never stands shorter.
-  const height = Math.min(MAX_HEIGHT, dense
-    ? Math.max((DATA.denseBytes + (size - DATA.denseBytes) * DENSE_SCALE)
-               * BYTE_HEIGHT, DENSE_HEIGHT)
-    : Math.max(size * BYTE_HEIGHT, MIN_HEIGHT));
+  const division = DIVISIONS.get(divider);
+  const height = Math.min(MAX_HEIGHT, Math.max(size * BYTE_HEIGHT / divider,
+    division ? TAG_HEIGHT : MIN_HEIGHT));
   const fit = height / stacked;
   if (hits.length) {
     tops.forEach((top, i) => { tops[i] = top * fit; });
@@ -256,16 +256,12 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
     }
   }
   const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "(none)";
-  let tag = -1;
-  if (dense) {
+  if (division) {
     // Wide enough to read the tag, and in colour: a binary commit has no lines.
     for (const slab of slabs) {
       slab.side = Math.max(slab.side, MIN_SLOT);
       slab.plain = 0;
     }
-    const word = dot > 0 ? ext : "file";
-    if (!TAGS.has(word) && TAGS.size < MAX_TAGS) TAGS.set(word, TAGS.size);
-    tag = TAGS.get(word) ?? -1;
   }
   // With no line counts, block sizes say nothing, and a file of any size would
   // be a pole. Stand it as wide as a one-commit text file of the same height.
@@ -275,7 +271,8 @@ const FILES = DATA.files.map(([path, hits, cityIndex, lines, size, dense]) => {
   }
   const side = Math.max(0, ...slabs.map((slab) => slab.side));
   const file = { kind: "file", path, name, dir, hits, lines, size, slabs, tops,
-    side, area, dense: !!dense, tag,
+    side, area, divider, shade: division?.shade ?? 1,
+    tag: division ? TAGS.indexOf(division.word) : -1,
     cityName: city.name, ext };
   dir.files.push(file);
   return file;
@@ -415,7 +412,7 @@ function count(file, t) {
   return lo;
 }
 
-function colourOf(file, t) {
+function hueOf(file, t) {
   if (state.mode === "age") {
     const n = count(file, t);
     if (!n || LAST < 1) return rampAt(1);
@@ -425,6 +422,10 @@ function colourOf(file, t) {
   }
   const key = file[KEYS[state.mode]];
   return rgb(scaleFor(file).colour.get(key) || OTHER);
+}
+
+function colourOf(file, t) {
+  return hueOf(file, t).map((v) => v * file.shade);
 }
 
 // ---- Renderer ----------------------------------------------------------
@@ -682,10 +683,9 @@ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ITEMS_W, ITEMS_H, 0, gl.RGBA,
   const pen = paper.getContext("2d", { willReadFrequently: true });
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, gl.createTexture());
-  const layers = Math.max(1, TAGS.size);
   gl.texStorage3D(gl.TEXTURE_2D_ARRAY,
-    1 + Math.floor(Math.log2(TAG_PX_W)), gl.RGBA8, TAG_PX_W, TAG_PX_H, layers);
-  for (const [word, layer] of TAGS) {
+    1 + Math.floor(Math.log2(TAG_PX_W)), gl.RGBA8, TAG_PX_W, TAG_PX_H, TAGS.length);
+  TAGS.forEach((word, layer) => {
     pen.clearRect(0, 0, TAG_PX_W, TAG_PX_H);
     pen.font = "700 92px ui-monospace, Menlo, Consolas, monospace";
     const fit = Math.min(1, TAG_PX_W * 0.88 / pen.measureText(word).width);
@@ -696,7 +696,7 @@ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, ITEMS_W, ITEMS_H, 0, gl.RGBA,
     pen.fillText(word, TAG_PX_W / 2, TAG_PX_H / 2);
     gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, TAG_PX_W, TAG_PX_H, 1,
                      gl.RGBA, gl.UNSIGNED_BYTE, paper);
-  }
+  });
   gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
   gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER,
                    gl.LINEAR_MIPMAP_LINEAR);
@@ -1035,7 +1035,7 @@ function renderDetail() {
     const seen = item.hits.slice(0, n);
     box.append(stats([
       [`Size at ${DATA.ref}`, sizeText(item.size)],
-      ...(item.dense ? [["Height", "dense: compressed past the cutoff"]] : []),
+      ...(item.divider > 1 ? [["Height", `divided by ${item.divider}`]] : []),
       ["Commits", String(n)],
       ["First", n ? day(seen[0]) : "not yet"],
       ["Latest", n ? day(seen[n - 1]) : "not yet"],

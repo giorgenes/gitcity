@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { assignCities, denseCutoff, embed, excluded, globMatch } from "../src/cities.js";
+import { assignCities, dividerFor, embed, excluded, globMatch } from "../src/cities.js";
 import { normalPath } from "../src/cityfile.js";
 import { CityError } from "../src/errors.js";
 import { hunkLines, parseLog } from "../src/history.js";
@@ -132,28 +132,50 @@ test("buildings carry commits, line kinds and current bytes, across renames", ()
   assert.deepEqual(data.commits.map((entry) => entry[2]), ["add", "edit", "move"]);
   assert.deepEqual(data.files.map((entry) => entry[0]), ["image.bin", "src/b.txt"]);
   assert.deepEqual(fileNamed(data, "src/b.txt").slice(1), [
-    [0, 1, 2], 0, [[3, 0, 0], [1, 0, 1], [0, 0, 0]], 14, 0,
+    [0, 1, 2], 0, [[3, 0, 0], [1, 0, 1], [0, 0, 0]], 14, 1,
   ]);
-  assert.deepEqual(fileNamed(data, "image.bin").slice(4), [4, 0]);
+  assert.deepEqual(fileNamed(data, "image.bin").slice(4), [4, 1]);
 });
 
-test("a dense file is larger than the 90th percentile of drawn files", () => {
-  assert.equal(denseCutoff([]), 0);
-  assert.equal(denseCutoff([5, 5, 5]), 5);
-  assert.equal(denseCutoff([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 9);
+test("a file takes the smallest divider that keeps it within the limit", () => {
+  // At 800 bytes per unit, a limit of 100 units is 80 KB.
+  assert.equal(dividerFor(0, 100), 1);
+  assert.equal(dividerFor(80_000, 100), 1);
+  assert.equal(dividerFor(80_001, 100), 10);
+  assert.equal(dividerFor(800_000, 100), 10);
+  assert.equal(dividerFor(800_001, 100), 100);
+  assert.equal(dividerFor(8_000_001, 100), 1000);
+  assert.equal(dividerFor(1e12, 100), 1000);
 
   const repo = makeRepo();
-  for (let at = 1; at <= 9; at += 1) put(repo, `f${at}.txt`, "x".repeat(at));
-  put(repo, "huge.png", Buffer.alloc(5000));
+  put(repo, "small.txt", "x".repeat(800));
+  put(repo, "tenfold.png", Buffer.alloc(801));
+  put(repo, "hundredfold.png", Buffer.alloc(8001));
   put(repo, "empty", "");
-  symlinkSync("f1.txt", join(repo, "link"));
+  symlinkSync("small.txt", join(repo, "link"));
   commit(repo, "add");
 
-  const { data } = city(repo);
-  assert.deepEqual(data.files.filter((entry) => entry[5]).map((entry) => entry[0]), ["huge.png"]);
-  assert.equal(fileNamed(data, "huge.png")[4], 5000);
-  assert.equal(data.denseBytes, 9);
-  assert.equal(fileNamed(data, "empty")[4], 0);
+  const { data } = city(repo, "--max-height", "1");
+  assert.equal(data.maxHeight, 1);
+  assert.equal(fileNamed(data, "small.txt")[5], 1);
+  assert.equal(fileNamed(data, "tenfold.png")[5], 10);
+  assert.equal(fileNamed(data, "hundredfold.png")[5], 100);
+  assert.deepEqual(fileNamed(data, "empty").slice(4), [0, 1]);
+});
+
+test("the height limit defaults, comes from the Cityfile, and a flag beats it", () => {
+  const repo = makeRepo();
+  put(repo, "a", "1\n");
+  commit(repo, "add");
+  assert.equal(city(repo).data.maxHeight, 100);
+
+  put(repo, "Cityfile", "max_height = 2.5\n");
+  assert.equal(city(repo).data.maxHeight, 2.5);
+  assert.equal(city(repo, "--max-height", "7").data.maxHeight, 7);
+
+  assert.match(city(repo, "--max-height", "tall").stderr, /--max-height must be a positive number/);
+  put(repo, "Cityfile", "max_height = 0\n");
+  assert.match(city(repo).stderr, /max_height must be a positive number/);
 });
 
 test("a subject holding replacement patterns reaches the page unchanged", () => {

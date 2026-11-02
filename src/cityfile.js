@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { parse, TomlError } from "smol-toml";
 import { fail, tomlMessage } from "./errors.js";
 
-const TOP_KEYS = new Set(["name", "ref", "output", "exclude", "city"]);
+const TOP_KEYS = new Set(["name", "ref", "output", "max_height", "exclude", "city"]);
 const CITY_KEYS = new Set(["name", "path", "exclude"]);
 
 /** Reject a misspelt key, which would otherwise be silently ignored. */
@@ -23,6 +23,14 @@ function checkText(table, key, where) {
   const value = table[key];
   if (value !== undefined && typeof value !== "string") {
     fail(`${where}: ${key} must be a string`);
+  }
+  return value;
+}
+
+/** Return a valid height limit, or fail naming where it came from. */
+export function checkMaxHeight(value, where) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    fail(`${where} must be a positive number`);
   }
   return value;
 }
@@ -54,6 +62,9 @@ export function readCityfile(path, { required }) {
 
   checkKeys(config, TOP_KEYS, path);
   for (const key of ["name", "ref", "output"]) checkText(config, key, path);
+  if (config.max_height !== undefined) {
+    checkMaxHeight(config.max_height, `${path}: max_height`);
+  }
   checkExclude(config, path);
 
   const cities = config.city ?? [];

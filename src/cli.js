@@ -1,15 +1,17 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
-import { assignCities, dropEmptyCommits, embed } from "./cities.js";
-import { readCityfile } from "./cityfile.js";
+import { assignCities, BYTE_HEIGHT, dropEmptyCommits, embed } from "./cities.js";
+import { checkMaxHeight, readCityfile } from "./cityfile.js";
 import { fail } from "./errors.js";
 import { git } from "./git.js";
 import { collect, fileSizes } from "./history.js";
 
 const TEMPLATE = new URL("../template/city.html", import.meta.url);
 const PLACEHOLDER = "/*__CITY_DATA__*/null";
-const USAGE = `usage: gitcity [-h] [--ref REF] [-o OUTPUT] [--cityfile CITYFILE] [repo]
+const DEFAULT_MAX_HEIGHT = 100;
+const USAGE = `usage: gitcity [-h] [--ref REF] [-o OUTPUT] [--cityfile CITYFILE]
+              [--max-height UNITS] [repo]
 
 Render a git repository as an interactive 3D city in one HTML file
 
@@ -20,7 +22,8 @@ options:
   -h, --help            show this help message and exit
   --ref REF             commit to draw (default: HEAD)
   -o, --output OUTPUT   output path (default: <name>-city.html)
-  --cityfile CITYFILE   config file (default: <repo>/Cityfile)`;
+  --cityfile CITYFILE   config file (default: <repo>/Cityfile)
+  --max-height UNITS    tallest building, at 800 bytes per unit (default: ${DEFAULT_MAX_HEIGHT})`;
 
 function readArgs(argv) {
   try {
@@ -31,6 +34,7 @@ function readArgs(argv) {
         ref: { type: "string" },
         output: { type: "string", short: "o" },
         cityfile: { type: "string" },
+        "max-height": { type: "string" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -57,6 +61,9 @@ export async function main(argv) {
   const name = config.name || basename(top);
   const ref = args.ref ?? (config.ref || "HEAD");
   const output = args.output ?? (config.output || `${name}-city.html`);
+  const maxHeight = args["max-height"] === undefined
+    ? config.max_height ?? DEFAULT_MAX_HEIGHT
+    : checkMaxHeight(Number(args["max-height"]), "--max-height");
   const cities = config.city?.length
     ? config.city
     : [{ name, path: "" }];
@@ -64,7 +71,7 @@ export async function main(argv) {
   const { commits: every, files: everyFile } = await collect(args.repo, ref);
   const placed = assignCities(everyFile, cities, config.exclude ?? []);
   const sizes = fileSizes(args.repo, ref);
-  const { commits, files, denseBytes } = dropEmptyCommits(every, placed, sizes);
+  const { commits, files } = dropEmptyCommits(every, placed, sizes, maxHeight);
   if (!commits.length) {
     fail(`no commit touches a drawn file at ${ref}`);
   }
@@ -77,7 +84,8 @@ export async function main(argv) {
     name,
     ref,
     generated: new Date().toISOString().slice(0, 10),
-    denseBytes,
+    byteHeight: BYTE_HEIGHT,
+    maxHeight,
     commits,
     cities: cities.map((city) => ({ name: city.name, path: city.path })),
     files,

@@ -27,8 +27,8 @@ The pipeline runs from `main` in `src/cli.js`: read the `Cityfile`, collect hist
 The JSON embedded in the page is the contract between the CLI and the template, and changing it means changing both:
 
 ```
-{name, ref, generated, denseBytes, commits: [[short, stamp, subject]], cities: [{name, path}],
- files: [[path, [commit index], city index, [[added, deleted, modified]], bytes, dense (0|1)]]}
+{name, ref, generated, byteHeight, maxHeight, commits: [[short, stamp, subject]], cities: [{name, path}],
+ files: [[path, [commit index], city index, [[added, deleted, modified]], bytes, divider (1|10|100|1000)]]}
 ```
 
 `commits` runs oldest first, and each file's two lists are parallel.
