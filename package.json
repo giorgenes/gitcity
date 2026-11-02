@@ -10,19 +10,26 @@
   "files": [
     "bin",
     "src",
-    "template"
+    "dist"
   ],
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/giorgenes/gitcity.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
+    "build": "vite build",
+    "prepare": "npm run build",
+    "pretest": "npm run build",
     "test": "node --test"
   },
   "dependencies": {
     "smol-toml": "^1.9.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5",
+    "vite-plugin-singlefile": "^2.3.4"
   }
 }

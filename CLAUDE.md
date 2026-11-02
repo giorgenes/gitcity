@@ -7,13 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```sh
-npm install
-npm test                                  # all tests (node:test), no build step
+npm install                               # also builds dist/city.html
+npm run build                             # rebuild the viewer after editing template/
+npm test                                  # build, then all tests (node:test)
 node --test --test-name-pattern="Cityfile" # tests whose name matches
 node bin/gitcity.js <repo> -o out.html    # run locally
 ```
 
-There is no linter or bundler. The code is plain ESM JavaScript, and `smol-toml` is the only runtime dependency.
+There is no linter. The code is plain ESM JavaScript, and `smol-toml` is the only runtime dependency. Vite builds the viewer; it is a dev dependency, and `prepare` runs it, including when `npx github:...` installs from git.
 
 ## Architecture
 
@@ -23,7 +24,7 @@ The pipeline runs from `main` in `src/cli.js`: read the `Cityfile`, collect hist
 - `src/cities.js` assigns files to cities and renumbers commits. It also holds the glob matcher.
 - `src/cityfile.js` validates config and rejects unknown keys.
 - `src/diff.js` lists a diff's changed paths. For `--diff-local` it commits the working tree into a scratch object directory, reached through the `GIT_*` environment, so the rest of the pipeline sees an ordinary commit.
-- `template/city.html` is the whole viewer: markup, styles and script, with no external assets. `src/cli.js` replaces its `/*__CITY_DATA__*/null` placeholder with the data.
+- `template/` is the viewer's source: `city.html`, `city.css`, and ES modules in `js/` with `js/start.js` as the entry. `vite.config.js` inlines them all into `dist/city.html`, which has no external assets. `src/cli.js` replaces its `/*__CITY_DATA__*/null` placeholder with the data.
 
 The JSON embedded in the page is the contract between the CLI and the template, and changing it means changing both:
 

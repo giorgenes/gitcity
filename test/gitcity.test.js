@@ -188,6 +188,17 @@ test("a subject holding replacement patterns reaches the page unchanged", () => 
   assert.ok(!page.includes("cost $& $` $' </script>"));
 });
 
+test("the page is one file, with the viewer's styles and script inline", () => {
+  const repo = makeRepo();
+  put(repo, "a", "1\n");
+  commit(repo, "add a");
+  const { page } = city(repo);
+  assert.ok(page.includes("#fatal"));  // from city.css
+  assert.ok(page.includes("window.repoCity"));  // from js/start.js
+  assert.equal(page.match(/<script/g).length, 2);  // the data, and the code
+  assert.ok(!/<link|<script[^>]* src=/.test(page));  // nothing left to fetch
+});
+
 test("a Cityfile sets cities and excludes, and a flag beats it", () => {
   const repo = makeRepo();
   put(repo, "api/a.go", "1\n");

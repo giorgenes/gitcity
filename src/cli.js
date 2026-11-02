@@ -8,7 +8,7 @@ import { git } from "./git.js";
 import { changedFiles, snapshotWorkingTree } from "./diff.js";
 import { collect, fileSizes } from "./history.js";
 
-const TEMPLATE = new URL("../template/city.html", import.meta.url);
+const TEMPLATE = new URL("../dist/city.html", import.meta.url);
 const PLACEHOLDER = "/*__CITY_DATA__*/null";
 const DEFAULT_MAX_HEIGHT = 100;
 const USAGE = `usage: gitcity [-h] [--ref REF] [-o OUTPUT] [--cityfile CITYFILE]
