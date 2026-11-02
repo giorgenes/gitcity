@@ -14,6 +14,8 @@ npx github:giorgenes/gitcity ~/work/my-project --ref origin/main -o my-project.h
 | `-o`, `--output PATH` | output file | `<name>-city.html` |
 | `--cityfile PATH` | config file | `<repo>/Cityfile` |
 | `--max-height UNITS` | tallest building, at 800 bytes per unit | `100` |
+| `--diff BASE` | colour only the files changed since `--ref` split from `BASE` | off |
+| `--diff-local` | draw the working tree, colouring only uncommitted changes | off |
 
 Requires Node.js 20 or newer and `git`.
 
@@ -59,6 +61,32 @@ wide as a one-commit text file of the same height, rather than a thin pole.
 
 A file's history follows renames, so a moved file keeps its blocks. Merge
 commits with no diff of their own add no block.
+
+## Diff mode
+
+Diff mode draws the whole city as usual, but only the top block of each file in
+the diff keeps its colour. Everything else is gray: the lower blocks of those
+files and every other building. Moving through history, the colour stays on
+whichever block is on top at that point. The legend and the "Most commits" list
+cover only the files in the diff.
+
+```sh
+gitcity --diff main              # what this branch changes, as a pull request would
+gitcity --diff main --ref topic  # the same for another branch
+gitcity --diff-local             # uncommitted changes, staged or not
+```
+
+`--diff BASE` compares `--ref` with its merge base with `BASE`. A file deleted
+in the diff has no building, because it is gone from the drawn commit.
+
+`--diff-local` draws the working tree instead of a commit, so it ignores `ref`
+from the `Cityfile` and cannot be combined with `--ref`. Your uncommitted changes
+appear as one last commit: new files, including untracked ones that are not
+ignored, get a building, and deleted files lose theirs. Nothing is written to the
+repository.
+
+If no drawn file is in the diff, generation fails with a message instead of
+writing an all-gray page.
 
 ## Cityfile
 

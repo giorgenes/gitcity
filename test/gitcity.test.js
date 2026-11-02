@@ -53,6 +53,7 @@ function city(repo, ...args) {
 }
 
 const fileNamed = (data, name) => data.files.find((entry) => entry[0] === name);
+const changedNames = (data) => data.diff.changed.map((at) => data.files[at][0]);
 
 test("hunkLines counts the overlap as modified", () => {
   assert.deepEqual(hunkLines(2, 5), [3, 0, 2]);
@@ -237,4 +238,87 @@ test("mistakes end with a message and exit 1", () => {
   assert.match(city(repo, "--cityfile", join(scratch, "none")).stderr, /no such Cityfile/);
   assert.match(city(repo, "--ref", "nope").stderr, /^gitcity: git /);
   assert.equal(city(repo, "--nope").status, 2);
+});
+
+test("without a diff flag the page has no diff", () => {
+  const repo = makeRepo();
+  put(repo, "a", "1\n");
+  commit(repo, "first");
+  assert.equal(city(repo).data.diff, null);
+});
+
+test("--diff marks what the branch changed since it split from the base", () => {
+  const repo = makeRepo();
+  put(repo, "same", "1\n");
+  put(repo, "edited", "1\n");
+  put(repo, "doomed", "1\n");
+  put(repo, "moved", "1\n2\n3\n4\n5\n");
+  commit(repo, "base");
+  run(repo, "checkout", "-q", "-b", "topic");
+  put(repo, "edited", "2\n");
+  put(repo, "added", "1\n");
+  rmSync(join(repo, "doomed"));
+  renameSync(join(repo, "moved"), join(repo, "renamed"));
+  commit(repo, "work");
+  // A later change on the base is not part of the branch's diff.
+  run(repo, "checkout", "-q", "main");
+  put(repo, "same", "2\n");
+  commit(repo, "elsewhere");
+  run(repo, "checkout", "-q", "topic");
+
+  const { data, stdout } = city(repo, "--diff", "main");
+  assert.equal(data.diff.base, "main");
+  assert.deepEqual(changedNames(data), ["added", "edited", "renamed"]);
+  assert.ok(fileNamed(data, "same"));
+  assert.ok(!fileNamed(data, "doomed"));
+  assert.match(stdout, /3 in the diff from main/);
+
+  run(repo, "checkout", "-q", "main");
+  const other = city(repo, "--diff", "main", "--ref", "topic").data;
+  assert.deepEqual(changedNames(other), ["added", "edited", "renamed"]);
+});
+
+test("--diff-local draws the working tree and leaves the repository alone", () => {
+  const repo = makeRepo();
+  put(repo, ".gitignore", "ignored\n");
+  put(repo, "same", "1\n");
+  put(repo, "edited", "1\n");
+  put(repo, "staged", "1\n");
+  put(repo, "doomed", "1\n");
+  commit(repo, "base");
+  put(repo, "edited", "1\n2\n");
+  put(repo, "staged", "2\n");
+  run(repo, "add", "staged");
+  put(repo, "untracked", "1\n2\n3\n");
+  put(repo, "ignored", "1\n");
+  rmSync(join(repo, "doomed"));
+
+  const status = run(repo, "status", "--porcelain");
+  const objects = run(repo, "count-objects");
+  const { data } = city(repo, "--diff-local");
+
+  assert.equal(data.ref, "working tree");
+  assert.deepEqual(changedNames(data), ["edited", "staged", "untracked"]);
+  assert.ok(!fileNamed(data, "doomed"));
+  assert.ok(!fileNamed(data, "ignored"));
+  assert.equal(fileNamed(data, "untracked")[4], 6);
+  assert.deepEqual(data.commits.at(-1).slice(2), ["Uncommitted changes"]);
+  assert.deepEqual(fileNamed(data, "edited")[3], [[1, 0, 0], [1, 0, 0]]);
+
+  assert.equal(run(repo, "status", "--porcelain"), status);
+  assert.equal(run(repo, "count-objects"), objects);
+  assert.equal(run(repo, "log", "--format=%s"), "base\n");
+});
+
+test("diff mode fails rather than drawing an all-gray city", () => {
+  const repo = makeRepo();
+  put(repo, "a", "1\n");
+  commit(repo, "first");
+  const clean = city(repo, "--diff-local");
+  assert.equal(clean.status, 1);
+  assert.match(clean.stderr, /^gitcity: no drawn file differs from HEAD at working tree/);
+  assert.match(city(repo, "--diff", "main").stderr, /no drawn file differs from main/);
+  assert.match(city(repo, "--diff", "nope").stderr, /^gitcity: git diff/);
+  assert.equal(city(repo, "--diff", "main", "--diff-local").status, 2);
+  assert.equal(city(repo, "--diff-local", "--ref", "HEAD").status, 2);
 });

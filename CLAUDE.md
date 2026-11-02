@@ -22,13 +22,15 @@ The pipeline runs from `main` in `src/cli.js`: read the `Cityfile`, collect hist
 - `src/history.js` streams `git log --raw -p -U0` and folds it into per-file history. It walks newest to oldest, using an alias map to carry a live file's identity back through renames.
 - `src/cities.js` assigns files to cities and renumbers commits. It also holds the glob matcher.
 - `src/cityfile.js` validates config and rejects unknown keys.
+- `src/diff.js` lists a diff's changed paths. For `--diff-local` it commits the working tree into a scratch object directory, reached through the `GIT_*` environment, so the rest of the pipeline sees an ordinary commit.
 - `template/city.html` is the whole viewer: markup, styles and script, with no external assets. `src/cli.js` replaces its `/*__CITY_DATA__*/null` placeholder with the data.
 
 The JSON embedded in the page is the contract between the CLI and the template, and changing it means changing both:
 
 ```
 {name, ref, generated, byteHeight, maxHeight, commits: [[short, stamp, subject]], cities: [{name, path}],
- files: [[path, [commit index], city index, [[added, deleted, modified]], bytes, divider (1|10|100|1000)]]}
+ files: [[path, [commit index], city index, [[added, deleted, modified]], bytes, divider (1|10|100|1000)]],
+ diff: null | {base, changed: [file index]}}
 ```
 
 `commits` runs oldest first, and each file's two lists are parallel.
